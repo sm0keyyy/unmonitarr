@@ -14,16 +14,16 @@
   "services": {
     "radarr": {
       "enabled": true,
-      "host": "10.0.0.13",
-      "port": 7880,
-      "apikey": "6b1c78e84b114f9a802899a798d1e6e8",
+      "host": "localhost",
+      "port": 7878,
+      "apikey": "enter-radarr-api-key-here",
       "sample_size": 0
     },
     "sonarr": {
       "enabled": true,
-      "host": "10.0.0.13",
-      "port": 8990,
-      "apikey": "2f488f3e534e43ecae63adda67251ebd",
+      "host": "localhost",
+      "port": 8989,
+      "apikey": "enter-sonarr-api-key-here",
       "sample_size": 0,
       "season_filter": null
     }
