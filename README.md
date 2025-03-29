@@ -18,7 +18,7 @@ A containerized Python tool that unmonitors media from specified release groups 
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/unmonitarr.git
+   git clone https://github.com/sm0keyyy/unmonitarr.git
    cd unmonitarr
    ```
 
@@ -37,7 +37,7 @@ A containerized Python tool that unmonitors media from specified release groups 
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/unmonitarr.git
+   git clone https://github.com/sm0keyyy/unmonitarr.git
    cd unmonitarr
    ```
 
@@ -155,11 +155,11 @@ When running in Docker, you can use these environment variables:
 
 ## How It Works
 
-			IMPORTANT: use the standard TRaSH guides recommendation for the media naming scheme in Radarr/Sonarr
+		IMPORTANT: use the standard TRaSH guides recommendation for the media naming scheme in Radarr/Sonarr
 
 		Radarr: {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
-		Sonarr: Standard {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
-			Daily {Series TitleYear} - {Air-Date} - {Episode CleanTitle} [{Custom Formats }{Quality Full}]{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[MediaInfo VideoCodec]}{-Release Group}
+		Sonarr: Standard: {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
+			Daily: {Series TitleYear} - {Air-Date} - {Episode CleanTitle} [{Custom Formats }{Quality Full}]{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[MediaInfo VideoCodec]}{-Release Group}
 
 1. Fetches media items from Radarr/Sonarr APIs
 2. In monitoring mode, only processes items added/updated since last run
