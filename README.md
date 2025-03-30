@@ -25,12 +25,13 @@ A containerized Python tool that unmonitors media from specified release groups 
 ## Features
 
 - **Unified Processing**: Works with both Radarr (movies) and Sonarr (TV shows)
-- **Smart Release Group Detection**: Optimized for specific naming patterns with release groups
+- **Smart Release Group Detection**: Advanced pattern matching for virtually any naming convention
 - **Parallel Processing**: Uses concurrent workers for faster execution
-- **File Monitoring**: Only processes new/changed files since last run 
+- **Intelligent Monitoring**: Only processes files that haven't been unmonitored yet
+- **Self-Healing Config**: Automatically detects and fixes common configuration issues
 - **Containerized**: Easy deployment with Docker
-- **Logs**: Detailed logging with rotation
-- **Dry Run Mode**: Test without making changes
+- **Comprehensive Logging**: Detailed, actionable logs with rotation
+- **Dry Run Mode**: Test pattern matching without making changes
 
 ## Installation
 
@@ -179,8 +180,10 @@ Create a `unmonitarr_config.json` file with the following structure (Edit as nee
 #### General Settings
 
 - `release_groups`: List of release groups to target (case insensitive)
+  - **Important**: Each group must be a separate list item, NOT a comma-separated string
+  - Example: `["yify", "rarbg"]` is correct, `["yify,rarbg"]` is incorrect
 - `dry_run`: Set to `true` to test without making changes
-- `debug`: Set to `true` for verbose logging
+- `debug`: Set to `true` for verbose logging (helpful for troubleshooting release group detection)
 - `concurrent`: Number of concurrent workers (recommend 4-8)
 - `log_size`: Maximum log file size in MB
 - `log_backups`: Number of log file backups to keep
@@ -211,7 +214,7 @@ python unmonitarr.py --config config/unmonitarr_config.json
 
 ### Monitoring Mode
 
-Only processes new/changed files since last run:
+Only processes new/changed files or files that haven't been unmonitored yet:
 
 ```bash
 python unmonitarr.py --config config/unmonitarr_config.json --monitor
@@ -235,11 +238,70 @@ When running in Docker, you can use these environment variables:
 
 ## How It Works
 
-1. Fetches media items from Radarr/Sonarr APIs
-2. In monitoring mode, only processes items added/updated since last run
-3. Extracts release group from file paths using pattern matching 
-4. If a release group matches your target list, unmonitors the item
-5. Saves state of processed files to avoid redundant processing
+1. **Smart Configuration**: Detects and fixes common configuration issues automatically
+2. **API Integration**: Fetches media items from Radarr/Sonarr APIs
+3. **Pattern Recognition**: Uses multiple specialized regex patterns to identify release groups
+4. **Intelligent Monitoring**: In monitoring mode, only processes:
+   - New items added since last scan
+   - Updated items with changes
+   - Items that haven't been unmonitored yet
+5. **Selective Unmonitoring**: If a release group matches your target list, unmonitors the item
+6. **State Tracking**: Maintains separate tracking for processed vs. unmonitored items
+7. **Timezone-Safe**: Handles datetime comparison issues between timezone-aware and naive timestamps
+
+## Advanced Features
+
+### Enhanced Release Group Detection
+
+Unmonitarr can detect release groups in numerous formats:
+
+- Standard hyphenated: `Movie-RELEASEGROUP`
+- Bracketed: `Movie [RELEASEGROUP]`
+- Dot-separated: `Movie.2023.1080p.RELEASEGROUP`
+- Scene-style: `Movie.2023.1080p.BluRay.x264-RELEASEGROUP`
+- With quality tags: `Movie [1080p] [BluRay] [x264]-RELEASEGROUP`
+
+The advanced pattern matching even works with release groups that contain hyphens or special characters.
+
+### Monitoring Mode Improvements
+
+The monitoring system intelligently tracks:
+- Items you've already unmonitored (skipped in future scans)
+- Items you've checked but didn't unmonitor (rechecked each scan)
+- Items that are already unmonitored in Radarr/Sonarr
+
+This ensures files are never "lost" in monitoring mode, and every eligible file gets checked until it either matches a release group or is manually unmonitored.
+
+## Troubleshooting
+
+### Release Groups Not Being Detected
+
+1. Enable debug mode in your config file:
+   ```json
+   "debug": true
+   ```
+
+2. Look for log entries showing filename analysis:
+   ```
+   DEBUG - Analyzing filename for release group: Movie.Title.2023.1080p.WEB-DL.x264-RELEASEGROUP
+   ```
+
+3. Confirm your release groups are configured correctly (as separate list items):
+   ```json
+   "release_groups": [
+     "releasegroup",
+     "another-group"
+   ]
+   ```
+
+### Datetime Comparison Errors
+
+If you see errors like:
+```
+TypeError: can't compare offset-naive and offset-aware datetimes
+```
+
+The latest version (2.0+) of Unmonitarr should automatically handle this issue by normalizing timezone information.
 
 ## License
 
