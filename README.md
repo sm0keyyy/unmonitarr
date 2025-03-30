@@ -157,14 +157,14 @@ Create a `unmonitarr_config.json` file with the following structure:
   "services": {
     "radarr": {
       "enabled": true,
-      "host": "radarr",
+      "host": "localhost-or-ip",
       "port": 7878,
       "apikey": "your-radarr-api-key",
       "sample_size": 0
     },
     "sonarr": {
       "enabled": true,
-      "host": "sonarr",
+      "host": "localhost-or-ip",
       "port": 8989,
       "apikey": "your-sonarr-api-key",
       "sample_size": 0,
