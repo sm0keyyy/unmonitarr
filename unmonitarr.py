@@ -323,20 +323,6 @@ def fetch_new_media(config, state, last_scan=None):
         # Get episodes added since last scan date or not yet unmonitored
         series_to_process = []
         for series in all_series:
-            # Skip only if series is already unmonitored
-            if series['id'] in state['sonarr'].get('unmonitored_ids', []):
-                if config.get('debug'):
-                    logger.debug(f"Skipping series already unmonitored: {series.get('title', 'Unknown')}")
-                continue
-                
-            # If the series isn't monitored in Sonarr already, add to unmonitored list and skip
-            if not series.get('monitored', True):
-                if series['id'] not in state['sonarr'].get('unmonitored_ids', []):
-                    state['sonarr']['unmonitored_ids'].append(series['id'])
-                if config.get('debug'):
-                    logger.debug(f"Series already unmonitored in Sonarr: {series.get('title', 'Unknown')}")
-                continue
-            
             # Check if series was added recently
             include_series = False
             if 'added' in series:
@@ -429,25 +415,35 @@ def get_episodes(config, series_id, season_number=None):
     headers = get_headers(config)
     url = f"{api_url}/episode?seriesId={series_id}"
     
-    try:
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        episodes = response.json()
-        
-        # Filter by season if specified
-        if season_number is not None:
-            episodes = [ep for ep in episodes if ep.get('seasonNumber') == season_number]
+    # Add retry logic for more resilience
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            episodes = response.json()
             
-        # Keep only episodes with files
-        episodes_with_files = [ep for ep in episodes if ep.get('hasFile', False)]
-        
-        if config.get('debug'):
-            logger.debug(f"Found {len(episodes_with_files)}/{len(episodes)} episodes with files")
+            # Filter by season if specified
+            if season_number is not None:
+                episodes = [ep for ep in episodes if ep.get('seasonNumber') == season_number]
+                
+            # Keep only episodes with files
+            episodes_with_files = [ep for ep in episodes if ep.get('hasFile', False)]
             
-        return episodes_with_files
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to get episodes: {str(e)}")
-        return []
+            if config.get('debug'):
+                logger.debug(f"Found {len(episodes_with_files)}/{len(episodes)} episodes with files")
+                
+            return episodes_with_files
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"API request failed, retrying in {retry_delay}s: {str(e)}")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error(f"Failed to get episodes after {max_retries} attempts: {str(e)}")
+                return []
 
 def get_release_group(file_path, config):
     """
@@ -467,6 +463,12 @@ def get_release_group(file_path, config):
     
     if config.get('debug'):
         logger.debug(f"Analyzing filename for release group: {basename}")
+    
+    # For troubleshooting, extract and log the last portion of the filename
+    # This helps identify patterns we might be missing
+    last_segment = basename.split('-')[-1] if '-' in basename else ''
+    if last_segment and config.get('debug'):
+        logger.debug(f"Last segment after hyphen: {last_segment}")
     
     # Common pattern structures for release groups
     patterns = [
@@ -497,6 +499,13 @@ def get_release_group(file_path, config):
         # Handle brackets in the middle with hyphen after
         # Examples: "Movie.Title.2023.[1080p]-RELEASEGROUP"
         r'\][\s]*-[\s]*([A-Za-z0-9._-]+)(?:\..*)?$',
+        
+        # Quality patterns with release groups
+        # Examples: "Movie.Title.2023.1080p.RELEASEGROUP"
+        r'(?:480p|720p|1080p|2160p)\.([A-Za-z0-9._-]{2,})$',
+        
+        # Very liberal pattern to catch almost anything after the last dot
+        r'\.([A-Za-z0-9]{2,})$',
         
         # Fallback pattern for any group-like strings at the end
         # This is less precise but might catch edge cases
@@ -576,30 +585,13 @@ def unmonitor_media(config, media_item):
         return False
 
 def process_series(config, series, target_groups, state):
-    """Process a single series to check if it should be unmonitored (Sonarr only)"""
+    """Process a single series to check if episodes should be unmonitored (Sonarr only)
+    
+    IMPORTANT: This function only unmonitors individual episodes that match release groups,
+    not the entire series. The series remains monitored.
+    """
     series_id = series['id']
     series_title = series['title']
-    
-    # Skip if series is already unmonitored in our tracking
-    if series_id in state['sonarr'].get('unmonitored_ids', []):
-        if config.get('debug'):
-            logger.debug(f"Skipping already unmonitored series: {series_title}")
-        return 0
-    
-    # Skip if series is already unmonitored in Sonarr, but record it
-    if not series.get('monitored', True):
-        if config.get('debug'):
-            logger.debug(f"Series already unmonitored in Sonarr: {series_title}")
-        
-        # Add to our unmonitored tracking
-        if series_id not in state['sonarr'].get('unmonitored_ids', []):
-            state['sonarr']['unmonitored_ids'].append(series_id)
-            
-        # Still mark as processed
-        if series_id not in state['sonarr'].get('processed_ids', []):
-            state['sonarr']['processed_ids'].append(series_id)
-            
-        return 0
     
     # Get episodes filtered by season if specified
     season_filter = config.get('season_filter')
@@ -1060,7 +1052,7 @@ def process_episode(episode, config, target_groups, state):
                 if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
                     state['sonarr']['processed_episode_ids'].append(episode['id'])
                 
-                # Unmonitor the episode
+                # Unmonitor the episode - ONLY the individual episode, not the series
                 if unmonitor_episode(config, episode):
                     # Add to unmonitored list only if successfully unmonitored
                     if episode['id'] not in state['sonarr'].get('unmonitored_episode_ids', []):
