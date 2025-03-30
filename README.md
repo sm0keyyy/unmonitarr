@@ -133,16 +133,16 @@ The easiest way to get started is to use the provided setup script:
 
 ## Configuration
 
-Create a `unmonitarr_config.json` file with the following structure:
+Create a `unmonitarr_config.json` file with the following structure (Edit as needed):
 
 ```json
 {
   "general": {
     "release_groups": [
-      "yify",       # |----------------
-      "rarbg",      # | Edit as needed
-      "axxo",       # |
-      "ctrlhd"      # |----------------
+      "yify",
+      "rarbg",
+      "axxo",
+      "ctrlhd"
     ],
     "dry_run": false,
     "debug": false,
@@ -157,16 +157,16 @@ Create a `unmonitarr_config.json` file with the following structure:
   "services": {
     "radarr": {
       "enabled": true,
-      "host": "localhost-or-ip",       # Edit as needed
-      "port": 7878,                    # Edit as needed
-      "apikey": "your-radarr-api-key", # Edit as needed
+      "host": "localhost-or-ip",
+      "port": 7878,
+      "apikey": "your-radarr-api-key",
       "sample_size": 0
     },
     "sonarr": {
       "enabled": true,
-      "host": "localhost-or-ip",       # Edit as needed
-      "port": 8989,                    # Edit as needed
-      "apikey": "your-sonarr-api-key", # Edit as needed
+      "host": "localhost-or-ip",
+      "port": 8989,
+      "apikey": "your-sonarr-api-key",
       "sample_size": 0,
       "season_filter": null
     }
