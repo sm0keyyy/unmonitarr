@@ -79,10 +79,29 @@ def parse_arguments():
     return parser.parse_args()
 
 def load_config(config_path):
-    """Load configuration from JSON file"""
+    """Load configuration from JSON file with enhanced validation and fixing"""
     try:
         with open(config_path, 'r') as config_file:
             config_data = json.load(config_file)
+        
+        # Check and fix release_groups format if needed
+        if 'general' in config_data and 'release_groups' in config_data['general']:
+            # If the list contains only one item and it has commas, split it
+            release_groups = config_data['general']['release_groups']
+            if len(release_groups) == 1 and ',' in release_groups[0]:
+                # Split the comma-separated string into a list
+                fixed_groups = [group.strip() for group in release_groups[0].split(',')]
+                config_data['general']['release_groups'] = fixed_groups
+                
+                logger.warning("Detected comma-separated release groups in a single string. " +
+                               "Automatically splitting into separate items.")
+                logger.warning(f"Original: {release_groups}")
+                logger.warning(f"Fixed: {fixed_groups}")
+                
+                # Save the fixed config back to file
+                with open(config_path, 'w') as config_file:
+                    json.dump(config_data, config_file, indent=2)
+                logger.warning(f"Updated config file saved to {config_path}")
             
         # Create the service-specific configs
         configs = {}
@@ -115,9 +134,11 @@ def load_config(config_path):
             configs['sonarr'] = sonarr_config
             logger.info(f"Sonarr configuration loaded: {sonarr_config['host']}:{sonarr_config['port']}")
         
-        # Log the shared settings
+        # Log the shared settings with proper formatting
         for service, config in configs.items():
-            logger.info(f"Targeting release groups for {service}: {config['release_groups']}")
+            # Format the release groups for better log readability
+            groups_str = ", ".join(f'"{group}"' for group in config['release_groups'])
+            logger.info(f"Targeting release groups for {service}: [{groups_str}]")
             logger.info(f"Using {config.get('concurrent', 1)} concurrent workers")
             
         return configs
@@ -141,27 +162,52 @@ def get_headers(config):
     }
 
 def load_state():
-    """Load the state from file or initialize a new empty state"""
+    """Load the state from file or initialize a new empty state with enhanced tracking"""
     try:
         if os.path.exists(state_file):
             with open(state_file, 'r') as f:
                 state = json.load(f)
+                
+                # Upgrade old state format if necessary
+                if 'radarr' in state and 'unmonitored_ids' not in state['radarr']:
+                    state['radarr']['unmonitored_ids'] = []
+                if 'sonarr' in state and 'unmonitored_ids' not in state['sonarr']:
+                    state['sonarr']['unmonitored_ids'] = []
+                if 'sonarr' in state and 'unmonitored_episode_ids' not in state['sonarr']:
+                    state['sonarr']['unmonitored_episode_ids'] = []
+                    
                 logger.info(f"Loaded state file from {state_file}")
                 return state
         else:
             logger.info(f"No state file found, initializing new state")
             return {
                 'last_scan': None,
-                'radarr': {'processed_ids': []},
-                'sonarr': {'processed_ids': [], 'processed_episode_ids': []}
+                'radarr': {
+                    'processed_ids': [],
+                    'unmonitored_ids': []  # Track actually unmonitored IDs
+                },
+                'sonarr': {
+                    'processed_ids': [], 
+                    'processed_episode_ids': [],
+                    'unmonitored_ids': [],  # Track actually unmonitored series IDs
+                    'unmonitored_episode_ids': []  # Track actually unmonitored episode IDs
+                }
             }
     except Exception as e:
         logger.error(f"Error loading state file: {str(e)}")
         # Return a new, empty state on error
         return {
             'last_scan': None,
-            'radarr': {'processed_ids': []},
-            'sonarr': {'processed_ids': [], 'processed_episode_ids': []}
+            'radarr': {
+                'processed_ids': [],
+                'unmonitored_ids': []
+            },
+            'sonarr': {
+                'processed_ids': [], 
+                'processed_episode_ids': [],
+                'unmonitored_ids': [],
+                'unmonitored_episode_ids': []
+            }
         }
 
 def save_state(state):
@@ -211,7 +257,9 @@ def fetch_all_media(config):
         return []
 
 def fetch_new_media(config, state, last_scan=None):
-    """Fetch only new or updated media items since the last scan"""
+    """Fetch only new or updated media items since the last scan,
+    skipping only items that were actually unmonitored"""
+    
     if not last_scan:
         return fetch_all_media(config)
     
@@ -220,85 +268,126 @@ def fetch_new_media(config, state, last_scan=None):
     
     # Convert ISO timestamp to date object for comparison
     last_scan_date = date_parser.parse(last_scan)
+    # Ensure the datetime is timezone-naive for consistent comparison
+    if last_scan_date.tzinfo is not None:
+        last_scan_date = last_scan_date.replace(tzinfo=None)
     
     if config['service'] == 'radarr':
-        # Fetch all movies and filter by dateAdded or movieFile.dateAdded
+        # Fetch all movies
         all_media = fetch_all_media(config)
         
-        # Filter to only include new or updated items
+        # Filter to only include new or updated items, or items not yet unmonitored
         new_media = []
         for item in all_media:
-            # Skip already processed items
-            if item['id'] in state['radarr']['processed_ids']:
+            # Skip only if previously unmonitored - THIS IS THE KEY CHANGE
+            if item['id'] in state['radarr'].get('unmonitored_ids', []):
                 continue
                 
+            # If the file isn't monitored in Radarr already, skip it
+            if not item.get('monitored', True):
+                # Add to unmonitored list if not already there
+                if item['id'] not in state['radarr'].get('unmonitored_ids', []):
+                    state['radarr']['unmonitored_ids'].append(item['id'])
+                continue
+            
+            # Include media with changes or new additions since last scan
+            include_item = False
+            
             # Check if media was added after the last scan
             if 'added' in item:
                 added_date = date_parser.parse(item['added'])
+                if added_date.tzinfo is not None:
+                    added_date = added_date.replace(tzinfo=None)
                 if added_date > last_scan_date:
-                    new_media.append(item)
-                    continue
+                    include_item = True
             
             # Also include items with recent file changes
-            if 'movieFile' in item and item['movieFile'] and 'dateAdded' in item['movieFile']:
+            if not include_item and 'movieFile' in item and item['movieFile'] and 'dateAdded' in item['movieFile']:
                 file_date = date_parser.parse(item['movieFile']['dateAdded'])
+                if file_date.tzinfo is not None:
+                    file_date = file_date.replace(tzinfo=None)
                 if file_date > last_scan_date:
-                    new_media.append(item)
-                    continue
+                    include_item = True
+            
+            # Include items that haven't been processed before or have changes
+            if include_item or item['id'] not in state['radarr'].get('processed_ids', []):
+                new_media.append(item)
         
-        logger.info(f"Found {len(new_media)} new/updated movies since {last_scan}")
+        logger.info(f"Found {len(new_media)} movies to process (new/updated/not unmonitored)")
         return new_media
         
     else:  # sonarr
-        # For Sonarr, we need a different approach since episodes are separate from series
+        # Fetch all series
         all_series = fetch_all_media(config)
-            
-        # Convert ISO timestamp to date object for comparison
-        last_scan_date = date_parser.parse(last_scan)
-
-        # Make the timestamp timezone-aware if it isn't already
-        if last_scan_date.tzinfo is None:
-            from datetime import timezone
-            last_scan_date = last_scan_date.replace(tzinfo=timezone.utc)
-            
-        # Get episodes added since last scan date
-        new_series = []
+        
+        # Get episodes added since last scan date or not yet unmonitored
+        series_to_process = []
         for series in all_series:
-            # Skip already fully processed series
-            if series['id'] in state['sonarr']['processed_ids']:
+            # Skip only if series is already unmonitored
+            if series['id'] in state['sonarr'].get('unmonitored_ids', []):
+                if config.get('debug'):
+                    logger.debug(f"Skipping series already unmonitored: {series.get('title', 'Unknown')}")
                 continue
                 
-            # Check if series was added after the last scan
+            # If the series isn't monitored in Sonarr already, add to unmonitored list and skip
+            if not series.get('monitored', True):
+                if series['id'] not in state['sonarr'].get('unmonitored_ids', []):
+                    state['sonarr']['unmonitored_ids'].append(series['id'])
+                if config.get('debug'):
+                    logger.debug(f"Series already unmonitored in Sonarr: {series.get('title', 'Unknown')}")
+                continue
+            
+            # Check if series was added recently
+            include_series = False
             if 'added' in series:
                 added_date = date_parser.parse(series['added'])
+                if added_date.tzinfo is not None:
+                    added_date = added_date.replace(tzinfo=None)
                 if added_date > last_scan_date:
-                    new_series.append(series)
-                    continue
+                    include_series = True
             
-            # Check for new episodes
-            episodes = get_episodes(config, series['id'])
-            new_episodes = False
-            
-            for episode in episodes:
-                # Skip already processed episodes
-                if episode['id'] in state['sonarr']['processed_episode_ids']:
-                    continue
-                    
-                if episode.get('episodeFileId') and not episode.get('hasFile', False):
-                    continue
+            # Check for episodes that need processing
+            if not include_series:
+                episodes = get_episodes(config, series['id'])
+                needs_processing = False
                 
-                # Check if the episode file was added after last scan
-                if 'episodeFile' in episode and 'dateAdded' in episode['episodeFile']:
-                    file_date = date_parser.parse(episode['episodeFile']['dateAdded'])
-                    if file_date > last_scan_date:
-                        new_episodes = True
+                for episode in episodes:
+                    # Skip episodes already marked as unmonitored
+                    if episode['id'] in state['sonarr'].get('unmonitored_episode_ids', []):
+                        continue
+                        
+                    # If already unmonitored in Sonarr, record it but skip
+                    if not episode.get('monitored', True):
+                        if episode['id'] not in state['sonarr'].get('unmonitored_episode_ids', []):
+                            state['sonarr']['unmonitored_episode_ids'].append(episode['id'])
+                        continue
+                    
+                    if not episode.get('hasFile', False) or not episode.get('episodeFileId'):
+                        continue
+                    
+                    # New episode file added
+                    if 'episodeFile' in episode and 'dateAdded' in episode['episodeFile']:
+                        file_date = date_parser.parse(episode['episodeFile']['dateAdded'])
+                        if file_date.tzinfo is not None:
+                            file_date = file_date.replace(tzinfo=None)
+                        if file_date > last_scan_date:
+                            needs_processing = True
+                            break
+                    
+                    # Episode hasn't been processed yet
+                    if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                        needs_processing = True
                         break
+                
+                if needs_processing:
+                    include_series = True
             
-            if new_episodes:
-                new_series.append(series)
+            # Include new or unprocessed series
+            if include_series or series['id'] not in state['sonarr'].get('processed_ids', []):
+                series_to_process.append(series)
         
-        logger.info(f"Found {len(new_series)} series with new/updated episodes since {last_scan}")
-        return new_series
+        logger.info(f"Found {len(series_to_process)} series to process (new/updated/not unmonitored)")
+        return series_to_process
 
 def get_file_details(config, media_id, file_id=None):
     """Get file details for a specific movie or series/episode"""
@@ -362,11 +451,13 @@ def get_episodes(config, series_id, season_number=None):
 
 def get_release_group(file_path, config):
     """
-    Extract release group from file path using patterns optimized for the specific naming scheme.
+    Extract release group from file path using enhanced pattern matching.
     
-    Works with both movie and TV series naming conventions:
-    - Movies: {Movie Title} [...] {-Release Group}.ext
-    - Series: {Series Title} - S{season}E{episode} - {Episode Title} [...] {-Release Group}.ext
+    Works with a wide variety of naming conventions including:
+    - Standard: Movie.Title.2023.1080p.WEB-DL.DDP5.1.H.264-RELEASEGROUP
+    - Hyphenated: Movie Title (2023) [1080p] [WEB-DL] [DDP5.1] [H.264]-RELEASEGROUP
+    - Bracketed: Movie.Title.2023.1080p.BluRay.x264.[RELEASEGROUP]
+    - Multiple tags: Movie.Title.2023.1080p.[HDR10].[DV].[DDP5.1]-RELEASEGROUP
     """
     # Get just the filename without the path
     filename = os.path.basename(file_path)
@@ -374,50 +465,87 @@ def get_release_group(file_path, config):
     # First, remove the file extension
     basename = os.path.splitext(filename)[0]
     
-    # Primary pattern: Release group at end preceded by hyphen
-    # This targets: "...-RlsGrp"
-    primary_pattern = r'-([A-Za-z0-9._]+)$'
-    match = re.search(primary_pattern, basename)
+    if config.get('debug'):
+        logger.debug(f"Analyzing filename for release group: {basename}")
     
+    # Common pattern structures for release groups
+    patterns = [
+        # Primary pattern: Release group at end preceded by hyphen (most common)
+        # Examples: "Movie Title-RELEASEGROUP", "Show.S01E01-RELEASEGROUP"
+        r'-([A-Za-z0-9._-]+)$',
+        
+        # Bracket pattern: [RELEASEGROUP] at the end
+        # Examples: "Movie Title [RELEASEGROUP]", "Show.S01E01 [RELEASEGROUP]"
+        r'\[([A-Za-z0-9._-]+)\]$',
+        
+        # Dot separated pattern: ending with .RELEASEGROUP
+        # Examples: "Movie.Title.2023.1080p.RELEASEGROUP", "Show.S01E01.RELEASEGROUP"
+        r'\.([A-Za-z0-9_-]{2,})$',
+        
+        # Common format with multi brackets: tags then group
+        # Examples: "Movie [1080p] [WEB-DL]-RELEASEGROUP"
+        r'\][\s]*-[\s]*([A-Za-z0-9._-]+)$',
+        
+        # Common torrent format with dots
+        # Examples: "Movie.Title.2023.1080p.WEB-DL.RELEASEGROUP"
+        r'(?:480p|720p|1080p|2160p|4k|bluray|web-dl|webrip|hdtv|xvid|aac|ac3|dts|bd5|bd9|bd25|bd50|bd66|bd100)(?:\.[^.]+)*\.([A-Za-z0-9_-]{2,})$',
+        
+        # Scene naming convention
+        # Examples: "Movie.Title.2023.1080p.WEB-DL.x264-RELEASEGROUP"
+        r'(?:x264|x265|h264|h265|hevc|xvid)[\s.]*-[\s.]*([A-Za-z0-9._-]+)(?:\..*)?$',
+        
+        # Handle brackets in the middle with hyphen after
+        # Examples: "Movie.Title.2023.[1080p]-RELEASEGROUP"
+        r'\][\s]*-[\s]*([A-Za-z0-9._-]+)(?:\..*)?$',
+        
+        # Fallback pattern for any group-like strings at the end
+        # This is less precise but might catch edge cases
+        r'(?:[\.\s\[\]\(\)\-]|^)([A-Za-z0-9]{2,})$'
+    ]
+    
+    # Try each pattern in order of specificity
+    for pattern in patterns:
+        match = re.search(pattern, basename, re.IGNORECASE)
+        if match:
+            group = match.group(1)
+            # Clean up the group name (remove trailing dots, etc)
+            group = group.rstrip('.')
+            
+            if config.get('debug'):
+                logger.debug(f"Found release group: {group} using pattern: {pattern}")
+            return group
+    
+    # Special handling for specific scene/p2p naming conventions
+    # This handles cases where the release group might be embedded in a complex pattern
+    scene_pattern = r'(?:\.|\-|\[|\s)((?:AMIABLE|SPARKS|GECKOS|DRONES|EVO|YIFY|YTS|RARBG)\b.*?)(?:\.|\]|\[|\-|$)'
+    match = re.search(scene_pattern, basename, re.IGNORECASE)
     if match:
         group = match.group(1)
         if config.get('debug'):
-            logger.debug(f"Found release group: {group} using primary pattern in {basename}")
-        return group
-    
-    # Fallback pattern 1: Look for bracket markers containing the group at the end
-    # This targets: "...[WEB-DL][AVC]-RlsGrp"
-    fallback_pattern1 = r']\-([A-Za-z0-9._]+)$'
-    match = re.search(fallback_pattern1, basename)
-    
-    if match:
-        group = match.group(1)
-        if config.get('debug'):
-            logger.debug(f"Found release group: {group} using fallback pattern 1 in {basename}")
-        return group
-    
-    # Fallback pattern 2: Look for the last segment after a dot
-    # This targets formats where periods separate elements: "...AVC.RlsGrp"
-    fallback_pattern2 = r'\.([A-Za-z0-9_]+)$'
-    match = re.search(fallback_pattern2, basename)
-    
-    if match:
-        group = match.group(1)
-        if config.get('debug'):
-            logger.debug(f"Found release group: {group} using fallback pattern 2 in {basename}")
-        return group
-    
-    # Fallback pattern 3: Generic pattern for anything that looks like a group
-    # Less precise, but might catch edge cases
-    fallback_pattern3 = r'[\.\-\[\]]([A-Za-z0-9]{2,})$'
-    match = re.search(fallback_pattern3, basename)
-    
-    if match:
-        group = match.group(1)
-        if config.get('debug'):
-            logger.debug(f"Found release group: {group} using fallback pattern 3 in {basename}")
+            logger.debug(f"Found release group using scene pattern: {group}")
         return group
         
+    # Check for common abbreviations that might be release groups
+    common_groups = ['yts', 'yify', 'rarbg', 'ettv', 'eztv', 'ctrlhd', 'ntb', 'web', 'web-dl']
+    for group in common_groups:
+        # Look for the group with word boundaries
+        pattern = r'(?:^|\W)(' + re.escape(group) + r')(?:$|\W)'
+        match = re.search(pattern, basename, re.IGNORECASE)
+        if match:
+            found_group = match.group(1)
+            if config.get('debug'):
+                logger.debug(f"Found common release group: {found_group}")
+            return found_group
+    
+    # Handle potential multi-word groups with spaces
+    space_pattern = r'-\s*([A-Za-z0-9]+(?: [A-Za-z0-9]+)+)$'
+    match = re.search(space_pattern, basename)
+    if match:
+        group = match.group(1)
+        if config.get('debug'):
+            logger.debug(f"Found multi-word release group: {group}")
+        return group
+            
     if config.get('debug'):
         logger.debug(f"No release group found in: {basename}")
     return None
@@ -447,169 +575,30 @@ def unmonitor_media(config, media_item):
         logger.error(f"Failed to unmonitor {media_item['title']}: {str(e)}")
         return False
 
-def unmonitor_episode(config, episode):
-    """Unmonitor a specific episode (Sonarr only)"""
-    if config['service'] != 'sonarr':
-        return False
-        
-    if config['dry_run']:
-        if config.get('debug'):
-            logger.debug(f"[DRY RUN] Would unmonitor episode ID {episode['id']}")
-        return True
-        
-    api_url = get_api_url(config)
-    headers = get_headers(config)
-    
-    # Clone the episode and update monitored status
-    updated_episode = episode.copy()
-    updated_episode['monitored'] = False
-    
-    url = f"{api_url}/episode/{episode['id']}"
-    
-    episode_id = f"S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}"
-    logger.info(f"Unmonitoring: {episode_id} - {episode.get('title', 'Unknown')}")
-    
-    try:
-        response = requests.put(url, headers=headers, json=updated_episode, timeout=30)
-        response.raise_for_status()
-        return True
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to unmonitor episode {episode['id']}: {str(e)}")
-        return False
-
-def process_movie(item, config, target_groups, state):
-    """Process a single movie to check if it should be unmonitored (Radarr only)"""
-    try:
-        # Skip already processed items in monitoring mode
-        if item['id'] in state['radarr']['processed_ids']:
-            if config.get('debug'):
-                logger.debug(f"Skipping already processed movie: {item['title']}")
-            return False
-            
-        if not item['monitored']:
-            if config.get('debug'):
-                logger.debug(f"Skipping already unmonitored: {item['title']}")
-            
-            # Add to processed items even if already unmonitored
-            state['radarr']['processed_ids'].append(item['id'])
-            return False
-            
-        # Get file details for the movie
-        files = get_file_details(config, item['id'])
-        
-        if config.get('debug') and not files:
-            logger.debug(f"No files found for: {item['title']}")
-            return False
-        
-        for file in files:
-            if 'path' in file:
-                if config.get('debug'):
-                    logger.debug(f"Checking file: {file['path']}")
-                    
-                release_group = get_release_group(file['path'], config)
-                
-                if release_group:
-                    # Normalize to lowercase for case-insensitive comparison
-                    release_group_lower = release_group.lower()
-                    
-                    if config.get('debug'):
-                        logger.debug(f"Comparing '{release_group_lower}' with targets: {target_groups}")
-                    
-                    if release_group_lower in target_groups:
-                        logger.info(f"Match! Release group '{release_group}' found in {item['title']}")
-                        
-                        # Add to processed items list regardless of unmonitor result
-                        state['radarr']['processed_ids'].append(item['id'])
-                        
-                        return unmonitor_media(config, item)
-        
-        # Add to processed items since we've checked it
-        state['radarr']['processed_ids'].append(item['id'])
-        return False
-    except Exception as e:
-        logger.error(f"Error processing {item.get('title', 'unknown')}: {str(e)}")
-        return False
-
-def process_episode(episode, config, target_groups, state):
-    """Process a single episode to check if it should be unmonitored (Sonarr only)"""
-    try:
-        # Skip already processed episodes in monitoring mode
-        if episode['id'] in state['sonarr']['processed_episode_ids']:
-            if config.get('debug'):
-                logger.debug(f"Skipping already processed episode: S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}")
-            return False
-            
-        if not episode.get('monitored', True):
-            if config.get('debug'):
-                logger.debug(f"Skipping already unmonitored: S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}")
-            
-            # Add to processed items even if already unmonitored
-            state['sonarr']['processed_episode_ids'].append(episode['id'])
-            return False
-        
-        if not episode.get('hasFile', False) or not episode.get('episodeFileId'):
-            if config.get('debug'):
-                logger.debug(f"Episode has no file: S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}")
-            return False
-            
-        # Get file details for the episode
-        file_details_list = get_file_details(config, None, episode['episodeFileId'])
-        
-        if not file_details_list:
-            return False
-            
-        file_details = file_details_list[0]  # We should only have one file
-        
-        if 'path' not in file_details:
-            return False
-        
-        if config.get('debug'):
-            logger.debug(f"Checking file: {file_details['path']}")
-                
-        release_group = get_release_group(file_details['path'], config)
-            
-        if release_group:
-            # Normalize to lowercase for case-insensitive comparison
-            release_group_lower = release_group.lower()
-            
-            if config.get('debug'):
-                logger.debug(f"Comparing '{release_group_lower}' with targets: {target_groups}")
-            
-            if release_group_lower in target_groups:
-                episode_id = f"S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}"
-                logger.info(f"Match! Release group '{release_group}' found in {episode_id} - {episode.get('title', 'Unknown')}")
-                
-                # Add to processed items list
-                state['sonarr']['processed_episode_ids'].append(episode['id'])
-                
-                return unmonitor_episode(config, episode)
-        
-        # Add to processed items since we've checked it
-        state['sonarr']['processed_episode_ids'].append(episode['id'])
-        return False
-    except Exception as e:
-        logger.error(f"Error processing episode {episode.get('id', 'unknown')}: {str(e)}")
-        return False
-
 def process_series(config, series, target_groups, state):
     """Process a single series to check if it should be unmonitored (Sonarr only)"""
     series_id = series['id']
     series_title = series['title']
     
-    # Skip if series is already fully processed
-    if series_id in state['sonarr']['processed_ids'] and not config.get('force_full_scan'):
-        if config.get('debug'):
-            logger.debug(f"Skipping already fully processed series: {series_title}")
-        return 0
-    
-    # Skip if series is already unmonitored
-    if not series.get('monitored', True):
+    # Skip if series is already unmonitored in our tracking
+    if series_id in state['sonarr'].get('unmonitored_ids', []):
         if config.get('debug'):
             logger.debug(f"Skipping already unmonitored series: {series_title}")
+        return 0
+    
+    # Skip if series is already unmonitored in Sonarr, but record it
+    if not series.get('monitored', True):
+        if config.get('debug'):
+            logger.debug(f"Series already unmonitored in Sonarr: {series_title}")
         
+        # Add to our unmonitored tracking
+        if series_id not in state['sonarr'].get('unmonitored_ids', []):
+            state['sonarr']['unmonitored_ids'].append(series_id)
+            
         # Still mark as processed
-        if series_id not in state['sonarr']['processed_ids']:
+        if series_id not in state['sonarr'].get('processed_ids', []):
             state['sonarr']['processed_ids'].append(series_id)
+            
         return 0
     
     # Get episodes filtered by season if specified
@@ -619,6 +608,11 @@ def process_series(config, series, target_groups, state):
     if not episodes:
         if config.get('debug'):
             logger.debug(f"No episodes found for: {series_title}")
+            
+        # Mark as processed even if no episodes found
+        if series_id not in state['sonarr'].get('processed_ids', []):
+            state['sonarr']['processed_ids'].append(series_id)
+            
         return 0
     
     if config.get('debug'):
@@ -649,60 +643,13 @@ def process_series(config, series, target_groups, state):
                 unmonitored_count += 1
     
     # Mark series as fully processed when done
-    if series_id not in state['sonarr']['processed_ids']:
+    if series_id not in state['sonarr'].get('processed_ids', []):
         state['sonarr']['processed_ids'].append(series_id)
     
     # Log the results for this series
     if unmonitored_count > 0:
         action = "Would have unmonitored" if config['dry_run'] else "Unmonitored"
         logger.info(f"{action} {unmonitored_count} episodes in series: {series_title}")
-    
-    return unmonitored_count
-
-def process_media_radarr(config, state=None, monitoring_mode=False):
-    """Process all movies in Radarr and unmonitor those from specified release groups"""
-    if monitoring_mode and state and state.get('last_scan'):
-        logger.info(f"Running in monitoring mode, only checking new/updated movies since {state['last_scan']}")
-        movies = fetch_new_media(config, state, state['last_scan'])
-    else:
-        movies = fetch_all_media(config)
-        
-    if not movies:
-        logger.info("No movies found to process!")
-        return 0
-    
-    logger.info(f"Found {len(movies)} movies to check")
-    
-    target_groups = [group.lower() for group in config['release_groups']]
-    
-    # Optional: Display the first few items to verify parsing works correctly
-    if config.get('debug') and len(movies) > 0:
-        logger.debug(f"First movie: {movies[0]['title']}")
-    
-    # Set up parallel processing
-    max_workers = config.get('concurrent', 1)
-    unmonitored_count = 0
-    
-    if max_workers > 1:
-        logger.info(f"Using {max_workers} concurrent workers to process movies")
-        
-        # Create a partial function with the fixed arguments
-        process_fn = partial(process_movie, config=config, target_groups=target_groups, state=state if state else {'radarr': {'processed_ids': []}})
-        
-        # Use ThreadPoolExecutor for concurrent processing
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Map the function to the movies and collect results
-            results = list(executor.map(process_fn, movies))
-            unmonitored_count = results.count(True)
-    else:
-        # Use traditional sequential processing
-        logger.info("Processing movies sequentially")
-        for movie in movies:
-            if process_movie(movie, config, target_groups, state if state else {'radarr': {'processed_ids': []}}):
-                unmonitored_count += 1
-    
-    action = "Would have unmonitored" if config['dry_run'] else "Unmonitored"
-    logger.info(f"{action} {unmonitored_count} movies from specified release groups")
     
     return unmonitored_count
 
@@ -734,7 +681,7 @@ def process_media_sonarr(config, state=None, monitoring_mode=False):
     for index, series in enumerate(series_list):
         logger.info(f"Processing {index+1}/{len(series_list)}: {series['title']}")
         
-        unmonitored_count = process_series(config, series, target_groups, state if state else {'sonarr': {'processed_ids': [], 'processed_episode_ids': []}})
+        unmonitored_count = process_series(config, series, target_groups, state if state else {'sonarr': {'processed_ids': [], 'processed_episode_ids': [], 'unmonitored_ids': [], 'unmonitored_episode_ids': []}})
         
         if unmonitored_count > 0:
             total_unmonitored += unmonitored_count
@@ -885,6 +832,249 @@ def main():
         else:
             print(f"An error occurred before logger was initialized: {str(e)}")
         sys.exit(1)
+
+def process_media_radarr(config, state=None, monitoring_mode=False):
+    """Process all movies in Radarr and unmonitor those from specified release groups"""
+    if monitoring_mode and state and state.get('last_scan'):
+        logger.info(f"Running in monitoring mode, only checking new/updated movies since {state['last_scan']}")
+        movies = fetch_new_media(config, state, state['last_scan'])
+    else:
+        movies = fetch_all_media(config)
+        
+    if not movies:
+        logger.info("No movies found to process!")
+        return 0
+    
+    logger.info(f"Found {len(movies)} movies to check")
+    
+    target_groups = [group.lower() for group in config['release_groups']]
+    
+    # Optional: Display the first few items to verify parsing works correctly
+    if config.get('debug') and len(movies) > 0:
+        logger.debug(f"First movie: {movies[0]['title']}")
+    
+    # Set up parallel processing
+    max_workers = config.get('concurrent', 1)
+    unmonitored_count = 0
+    
+    if max_workers > 1:
+        logger.info(f"Using {max_workers} concurrent workers to process movies")
+        
+        # Create a partial function with the fixed arguments
+        process_fn = partial(process_movie, config=config, target_groups=target_groups, state=state if state else {'radarr': {'processed_ids': [], 'unmonitored_ids': []}})
+        
+        # Use ThreadPoolExecutor for concurrent processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Map the function to the movies and collect results
+            results = list(executor.map(process_fn, movies))
+            unmonitored_count = results.count(True)
+    else:
+        # Use traditional sequential processing
+        logger.info("Processing movies sequentially")
+        for movie in movies:
+            if process_movie(movie, config, target_groups, state if state else {'radarr': {'processed_ids': [], 'unmonitored_ids': []}}):
+                unmonitored_count += 1
+    
+    action = "Would have unmonitored" if config['dry_run'] else "Unmonitored"
+    logger.info(f"{action} {unmonitored_count} movies from specified release groups")
+    
+    return unmonitored_count
+
+def unmonitor_episode(config, episode):
+    """Unmonitor a specific episode (Sonarr only)"""
+    if config['service'] != 'sonarr':
+        return False
+        
+    if config['dry_run']:
+        if config.get('debug'):
+            logger.debug(f"[DRY RUN] Would unmonitor episode ID {episode['id']}")
+        return True
+        
+    api_url = get_api_url(config)
+    headers = get_headers(config)
+    
+    # Clone the episode and update monitored status
+    updated_episode = episode.copy()
+    updated_episode['monitored'] = False
+    
+    url = f"{api_url}/episode/{episode['id']}"
+    
+    episode_id = f"S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}"
+    logger.info(f"Unmonitoring: {episode_id} - {episode.get('title', 'Unknown')}")
+    
+    try:
+        response = requests.put(url, headers=headers, json=updated_episode, timeout=30)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to unmonitor episode {episode['id']}: {str(e)}")
+        return False
+
+def process_movie(item, config, target_groups, state):
+    """Process a single movie, tracking unmonitored status"""
+    try:
+        movie_title = item.get('title', 'Unknown')
+        
+        # Skip if already unmonitored in our tracking
+        if item['id'] in state['radarr'].get('unmonitored_ids', []):
+            if config.get('debug'):
+                logger.debug(f"Skipping already unmonitored movie: {movie_title}")
+            return False
+            
+        # Skip if not monitored in Radarr, but track it
+        if not item.get('monitored', True):
+            if config.get('debug'):
+                logger.debug(f"Movie already unmonitored in Radarr: {movie_title}")
+                
+            # Add to our unmonitored tracking
+            if item['id'] not in state['radarr'].get('unmonitored_ids', []):
+                state['radarr']['unmonitored_ids'].append(item['id'])
+                
+            # Add to processed items for this run
+            if item['id'] not in state['radarr'].get('processed_ids', []):
+                state['radarr']['processed_ids'].append(item['id'])
+                
+            return False
+            
+        # Get file details for the movie
+        files = get_file_details(config, item['id'])
+        
+        if config.get('debug') and not files:
+            logger.debug(f"No files found for: {movie_title}")
+            
+            # Still mark as processed
+            if item['id'] not in state['radarr'].get('processed_ids', []):
+                state['radarr']['processed_ids'].append(item['id'])
+                
+            return False
+        
+        for file in files:
+            if 'path' in file:
+                if config.get('debug'):
+                    logger.debug(f"Checking file: {file['path']}")
+                    
+                release_group = get_release_group(file['path'], config)
+                
+                if release_group:
+                    # Normalize to lowercase for case-insensitive comparison
+                    release_group_lower = release_group.lower()
+                    
+                    if config.get('debug'):
+                        logger.debug(f"Comparing '{release_group_lower}' with targets: {target_groups}")
+                    
+                    if release_group_lower in target_groups:
+                        logger.info(f"Match! Release group '{release_group}' found in {movie_title}")
+                        
+                        # Add to processed items list
+                        if item['id'] not in state['radarr'].get('processed_ids', []):
+                            state['radarr']['processed_ids'].append(item['id'])
+                        
+                        # Unmonitor the movie
+                        if unmonitor_media(config, item):
+                            # Add to unmonitored list only if successfully unmonitored
+                            if item['id'] not in state['radarr'].get('unmonitored_ids', []):
+                                state['radarr']['unmonitored_ids'].append(item['id'])
+                            return True
+        
+        # Add to processed items since we've checked it but didn't unmonitor
+        if item['id'] not in state['radarr'].get('processed_ids', []):
+            state['radarr']['processed_ids'].append(item['id'])
+            
+        return False
+    except Exception as e:
+        logger.error(f"Error processing {item.get('title', 'unknown')}: {str(e)}")
+        return False
+
+def process_episode(episode, config, target_groups, state):
+    """Process a single episode, tracking unmonitored status"""
+    try:
+        episode_id = f"S{episode.get('seasonNumber', '?')}E{episode.get('episodeNumber', '?')}"
+        episode_title = f"{episode_id} - {episode.get('title', 'Unknown')}"
+        
+        # Skip if already unmonitored in our tracking
+        if episode['id'] in state['sonarr'].get('unmonitored_episode_ids', []):
+            if config.get('debug'):
+                logger.debug(f"Skipping already unmonitored episode: {episode_title}")
+            return False
+            
+        # Skip if not monitored in Sonarr, but track it
+        if not episode.get('monitored', True):
+            if config.get('debug'):
+                logger.debug(f"Episode already unmonitored in Sonarr: {episode_title}")
+                
+            # Add to our unmonitored tracking
+            if episode['id'] not in state['sonarr'].get('unmonitored_episode_ids', []):
+                state['sonarr']['unmonitored_episode_ids'].append(episode['id'])
+                
+            # Add to processed list for this run
+            if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                state['sonarr']['processed_episode_ids'].append(episode['id'])
+                
+            return False
+        
+        if not episode.get('hasFile', False) or not episode.get('episodeFileId'):
+            if config.get('debug'):
+                logger.debug(f"Episode has no file: {episode_title}")
+                
+            # Add to processed list since we've checked it
+            if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                state['sonarr']['processed_episode_ids'].append(episode['id'])
+                
+            return False
+            
+        # Get file details for the episode
+        file_details_list = get_file_details(config, None, episode['episodeFileId'])
+        
+        if not file_details_list:
+            # Add to processed list since we've checked it
+            if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                state['sonarr']['processed_episode_ids'].append(episode['id'])
+                
+            return False
+            
+        file_details = file_details_list[0]  # We should only have one file
+        
+        if 'path' not in file_details:
+            # Add to processed list since we've checked it
+            if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                state['sonarr']['processed_episode_ids'].append(episode['id'])
+                
+            return False
+        
+        if config.get('debug'):
+            logger.debug(f"Checking file: {file_details['path']}")
+                
+        release_group = get_release_group(file_details['path'], config)
+            
+        if release_group:
+            # Normalize to lowercase for case-insensitive comparison
+            release_group_lower = release_group.lower()
+            
+            if config.get('debug'):
+                logger.debug(f"Comparing '{release_group_lower}' with targets: {target_groups}")
+            
+            if release_group_lower in target_groups:
+                logger.info(f"Match! Release group '{release_group}' found in {episode_title}")
+                
+                # Add to processed items list
+                if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+                    state['sonarr']['processed_episode_ids'].append(episode['id'])
+                
+                # Unmonitor the episode
+                if unmonitor_episode(config, episode):
+                    # Add to unmonitored list only if successfully unmonitored
+                    if episode['id'] not in state['sonarr'].get('unmonitored_episode_ids', []):
+                        state['sonarr']['unmonitored_episode_ids'].append(episode['id'])
+                    return True
+        
+        # Add to processed items since we've checked it but didn't unmonitor
+        if episode['id'] not in state['sonarr'].get('processed_episode_ids', []):
+            state['sonarr']['processed_episode_ids'].append(episode['id'])
+            
+        return False
+    except Exception as e:
+        logger.error(f"Error processing episode {episode.get('id', 'unknown')}: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     main()
