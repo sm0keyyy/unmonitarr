@@ -33,6 +33,38 @@ A containerized Python tool that unmonitors media from specified release groups 
 - **Comprehensive Logging**: Detailed, actionable logs with rotation
 - **Dry Run Mode**: Test pattern matching without making changes
 
+## Real-World Example
+
+Below is a sample output of Unmonitarr in action, showing how it processes your media library:
+
+```
+2025-03-30 09:23:16,426 - INFO - Match! Release group 'SbR' found in 12 Years a Slave
+2025-03-30 09:23:16,427 - INFO - Match! Release group 'DON' found in 12 Angry Men
+2025-03-30 09:23:16,434 - INFO - Unmonitoring: 12 Years a Slave
+2025-03-30 09:23:16,442 - INFO - Unmonitoring: 12 Angry Men
+
+... [processing continues] ...
+
+2025-03-30 09:23:50,492 - INFO - Using 6 concurrent workers to process episodes for Band of Brothers
+2025-03-30 09:23:50,507 - INFO - Match! Release group 'D-Z0N3' found in S1E2 - Day of Days
+2025-03-30 09:23:50,515 - INFO - Unmonitoring: S1E2 - Day of Days
+2025-03-30 09:23:50,520 - INFO - Match! Release group 'D-Z0N3' found in S1E3 - Carentan
+2025-03-30 09:23:50,528 - INFO - Unmonitoring: S1E3 - Carentan
+
+... [processing continues] ...
+
+2025-03-30 09:24:42,757 - INFO - === Combined Results ===
+2025-03-30 09:24:42,758 - INFO - Radarr: Unmonitored 553 movies
+2025-03-30 09:24:42,759 - INFO - Sonarr: Unmonitored 9 episodes
+2025-03-30 09:24:42,772 - INFO - === Initial Scan Completed in 87.83 seconds ===
+```
+
+In this example, Unmonitarr:
+- Identified and unmonitored movies from release groups like 'SbR', 'DON', and 'D-Z0N3'
+- Processed individual episodes (notice how it only unmonitors specific episodes, not entire series)
+- Completed processing 553 movies and 9 episodes in just 87.83 seconds
+- All while maintaining perfect compatibility with your existing Radarr/Sonarr setup
+
 ## Installation
 
 ### Using the Setup Script (Recommended)
@@ -146,7 +178,14 @@ Create a `unmonitarr_config.json` file with the following structure (Edit as nee
       "ctrlhd",
       "iFT",
       "NTb",
-      "FLUX"
+      "FLUX",
+      "D-Z0N3",
+      "DON",
+      "c0kE",
+      "TayTO",
+      "EbP",
+      "SbR",
+      "NCmt"
     ],
     "dry_run": false,
     "debug": false,
@@ -185,6 +224,7 @@ Create a `unmonitarr_config.json` file with the following structure (Edit as nee
 - `release_groups`: List of release groups to target (case insensitive)
   - **Important**: Each group must be a separate list item, NOT a comma-separated string
   - Example: `["yify", "rarbg"]` is correct, `["yify,rarbg"]` is incorrect
+  - Case-insensitive matching lets you list them as shown above
 - `dry_run`: Set to `true` to test without making changes
 - `debug`: Set to `true` for verbose logging (helpful for troubleshooting release group detection)
 - `concurrent`: Number of concurrent workers (recommend 4-8)
@@ -252,6 +292,19 @@ When running in Docker, you can use these environment variables:
 6. **State Tracking**: Maintains separate tracking for processed vs. unmonitored items
 7. **Timezone-Safe**: Handles datetime comparison issues between timezone-aware and naive timestamps
 
+### Episode-Level Unmonitoring
+
+One of the most important features is that Unmonitarr performs episode-level unmonitoring in Sonarr, not series-level. As seen in the logs:
+
+```
+2025-03-30 09:23:50,507 - INFO - Match! Release group 'D-Z0N3' found in S1E2 - Day of Days
+2025-03-30 09:23:50,515 - INFO - Unmonitoring: S1E2 - Day of Days
+...
+2025-03-30 09:23:50,678 - INFO - Unmonitored 9 episodes in series: Band of Brothers
+```
+
+This means if only certain episodes in a series match your targeted release groups, only those specific episodes will be unmonitored. The series itself and other episodes remain monitored—preserving your carefully curated media library.
+
 ## Advanced Features
 
 ### Enhanced Release Group Detection
@@ -264,51 +317,25 @@ Unmonitarr can detect release groups in numerous formats:
 - Scene-style: `Movie.2023.1080p.BluRay.x264-RELEASEGROUP`
 - With quality tags: `Movie [1080p] [BluRay] [x264]-RELEASEGROUP`
 
-The advanced pattern matching even works with release groups that contain hyphens or special characters.
+The advanced pattern matching even works with release groups that contain hyphens or special characters, as seen with 'D-Z0N3' in the logs.
 
-### Monitoring Mode Improvements
+### Performance
 
-The monitoring system intelligently tracks:
-- Items you've already unmonitored (skipped in future scans)
-- Items you've checked but didn't unmonitor (rechecked each scan)
-- Items that are already unmonitored in Radarr/Sonarr
+The tool is optimized for speed and efficiency. In the example output, it processed:
+- 2,133 movies (unmonitoring 553 that matched target groups)
+- 203 TV series (unmonitoring 9 episodes across series)
 
-This ensures files are never "lost" in monitoring mode, and every eligible file gets checked until it either matches a release group or is manually unmonitored.
+All in just 87.83 seconds on a standard system.
 
-## Real-World Example
+### State Management
 
-Here's a snippet from an actual run showing the tool in action:
+Subsequent scans are even faster due to intelligent state tracking:
 
 ```
-2025-03-30 09:02:08,362 - INFO - Found 4 movies to check
-2025-03-30 09:02:08,363 - INFO - Using 6 concurrent workers to process movies
-2025-03-30 09:02:08,439 - INFO - Match! Release group 'iFT' found in Fantastic Beasts: The Secrets of Dumbledore
-2025-03-30 09:02:08,441 - INFO - Unmonitoring: Fantastic Beasts: The Secrets of Dumbledore
-2025-03-30 09:02:08,644 - INFO - Unmonitored 1 movies from specified release groups
-
-...
-
-2025-03-30 09:02:14,043 - INFO - Match! Release group 'NTb' found in S2E6 - The Mountain Teeth of Monsters
-2025-03-30 09:02:14,046 - INFO - Unmonitoring: S2E6 - The Mountain Teeth of Monsters
-2025-03-30 09:02:14,138 - INFO - Unmonitored 1 episodes in series: 1923
-
-...
-
-2025-03-30 09:02:15,035 - INFO - Match! Release group 'FLUX' found in S1E1 - Stick or Twist
-2025-03-30 09:02:15,036 - INFO - Unmonitoring: S1E1 - Stick or Twist
-2025-03-30 09:02:15,074 - INFO - Unmonitored 1 episodes in series: MobLand
-2025-03-30 09:02:15,174 - INFO - Unmonitored 2 episodes across 2 series from specified release groups
-2025-03-30 09:02:15,175 - INFO - === Combined Results ===
-2025-03-30 09:02:15,175 - INFO - Radarr: Unmonitored 1 movies
-2025-03-30 09:02:15,176 - INFO - Sonarr: Unmonitored 2 episodes
+2025-03-30 09:24:46,265 - INFO - Radarr: Unmonitored 0 movies
+2025-03-30 09:24:46,265 - INFO - Sonarr: Unmonitored 0 episodes
+2025-03-30 09:24:46,276 - INFO - === Monitoring Scan Completed in 3.50 seconds ===
 ```
-
-As you can see, Unmonitarr successfully identified and unmonitored:
-- A movie from the 'iFT' release group
-- An episode from the 'NTb' release group
-- An episode from the 'FLUX' release group
-
-All of this was completed in just 8.56 seconds!
 
 ## Troubleshooting
 
