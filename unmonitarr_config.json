@@ -1,0 +1,44 @@
+{
+  "general": {
+    "release_groups": [
+      "D-Z0N3", 
+      "DON", 
+      "c0ke", 
+      "TayTo", 
+      "EbP", 
+      "iFT", 
+      "Ntb", 
+      "FLUX", 
+      "NCmt", 
+      "SbR", 
+      "W4NK3R"
+    ],
+    "dry_run": false,
+    "debug": false,
+    "concurrent": 6,
+    "log_size": 10,
+    "log_backups": 3,
+    "monitoring": {
+      "enabled": true,
+      "interval": 3600
+    }
+  },
+  "services": {
+    "radarr": {
+      "enabled": true,
+      "host": "10.0.0.13",
+      "port": 7880,
+      "apikey": "6b1c78e84b114f9a802899a798d1e6e8",
+      "sample_size": 0
+    },
+    "sonarr": {
+      "enabled": true,
+      "host": "10.0.0.13",
+      "port": 8990,
+      "apikey": "2f488f3e534e43ecae63adda67251ebd",
+      "sample_size": 0,
+      "season_filter": null
+    }
+  }
+}
+

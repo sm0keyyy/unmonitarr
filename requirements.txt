@@ -1,0 +1,34 @@
+# Unmonitarr Dependencies
+# Carefully curated to power our intelligent media library management ecosystem
+
+# Core HTTP Interactions
+requests>=2.28.0
+
+# Datetime Parsing and Manipulation
+python-dateutil>=2.8.2
+
+# Logging and Monitoring (Optional but Recommended)
+watchdog>=2.3.0
+
+# Enhanced Type Hinting and Runtime Type Checking
+typing-extensions>=4.5.0
+
+# Advanced Concurrent Processing
+concurrent-futures>=3.3.1
+
+# Robust Configuration Management
+pydantic>=2.0.0
+
+# Secure Environment Variable Management
+python-dotenv>=1.0.0
+
+# Optional: Advanced Logging
+structlog>=23.1.0
+
+# Development and Debugging Tools
+# Uncomment if needed
+# pytest>=7.3.0
+# mypy>=1.3.0
+# black>=23.3.0
+# ruff>=0.0.270
+
