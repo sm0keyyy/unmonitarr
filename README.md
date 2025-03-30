@@ -1,5 +1,25 @@
 # Unmonitarr
 
+> ⚠️ **IMPORTANT**: This tool requires specific naming patterns to work correctly!
+> 
+> You **MUST** use the standard [TRaSH guides](https://trash-guides.info/) recommended naming scheme:
+> 
+> **Radarr (Movies):**  
+> ```
+> {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
+> ```
+> 
+> **Sonarr (TV Series):**  
+> Standard Episodes:
+> ```
+> {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
+> ```
+> 
+> Daily Episodes:
+> ```
+> {Series TitleYear} - {Air-Date} - {Episode CleanTitle} [{Custom Formats }{Quality Full}]{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[MediaInfo VideoCodec]}{-Release Group}
+> ```
+
 A containerized Python tool that unmonitors media from specified release groups in both Radarr (movies) and Sonarr (TV series).
 
 ## Features
@@ -14,7 +34,40 @@ A containerized Python tool that unmonitors media from specified release groups 
 
 ## Installation
 
-### Using Docker (Recommended)
+### Using the Setup Script (Recommended)
+
+The easiest way to get started is to use the provided setup script:
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/sm0keyyy/unmonitarr.git
+   cd unmonitarr
+   ```
+
+2. Run the setup script:
+   ```
+   bash setup.sh
+   ```
+
+   This script automatically:
+   - Creates the necessary directory structure (config, logs)
+   - Generates a default configuration file
+   - Creates required Docker files (docker-compose.yml, Dockerfile)
+   - Sets up the Python requirements
+   - Prepares the application for deployment
+
+3. Edit the configuration:
+   ```
+   nano config/unmonitarr_config.json
+   ```
+   **Important**: You must add your Radarr/Sonarr API keys before running the container.
+
+4. Build and start the container:
+   ```
+   docker-compose up -d
+   ```
+
+### Using Docker Manually
 
 1. Clone the repository:
    ```
@@ -154,12 +207,6 @@ When running in Docker, you can use these environment variables:
 - `TZ`: Timezone (default: UTC)
 
 ## How It Works
-
-		IMPORTANT: use the standard TRaSH guides recommendation for the media naming scheme in Radarr/Sonarr
-
-		Radarr: {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
-		Sonarr: Standard: {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
-			Daily: {Series TitleYear} - {Air-Date} - {Episode CleanTitle} [{Custom Formats }{Quality Full}]{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[MediaInfo VideoCodec]}{-Release Group}
 
 1. Fetches media items from Radarr/Sonarr APIs
 2. In monitoring mode, only processes items added/updated since last run
