@@ -24,7 +24,7 @@ A containerized Python tool that unmonitors media from specified release groups 
 
 2. Customize the configuration:
    ```
-   cp unmonitarr_config.json config/unmonitarr_config.json
+   cp unmonitarr_config.json /path/to/appdata/config/unmonitarr_config.json
    ```
    Edit `config/unmonitarr_config.json` with your Radarr/Sonarr details.
 
