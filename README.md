@@ -143,7 +143,10 @@ Create a `unmonitarr_config.json` file with the following structure (Edit as nee
       "yify",
       "rarbg",
       "axxo",
-      "ctrlhd"
+      "ctrlhd",
+      "iFT",
+      "NTb",
+      "FLUX"
     ],
     "dry_run": false,
     "debug": false,
@@ -271,6 +274,41 @@ The monitoring system intelligently tracks:
 - Items that are already unmonitored in Radarr/Sonarr
 
 This ensures files are never "lost" in monitoring mode, and every eligible file gets checked until it either matches a release group or is manually unmonitored.
+
+## Real-World Example
+
+Here's a snippet from an actual run showing the tool in action:
+
+```
+2025-03-30 09:02:08,362 - INFO - Found 4 movies to check
+2025-03-30 09:02:08,363 - INFO - Using 6 concurrent workers to process movies
+2025-03-30 09:02:08,439 - INFO - Match! Release group 'iFT' found in Fantastic Beasts: The Secrets of Dumbledore
+2025-03-30 09:02:08,441 - INFO - Unmonitoring: Fantastic Beasts: The Secrets of Dumbledore
+2025-03-30 09:02:08,644 - INFO - Unmonitored 1 movies from specified release groups
+
+...
+
+2025-03-30 09:02:14,043 - INFO - Match! Release group 'NTb' found in S2E6 - The Mountain Teeth of Monsters
+2025-03-30 09:02:14,046 - INFO - Unmonitoring: S2E6 - The Mountain Teeth of Monsters
+2025-03-30 09:02:14,138 - INFO - Unmonitored 1 episodes in series: 1923
+
+...
+
+2025-03-30 09:02:15,035 - INFO - Match! Release group 'FLUX' found in S1E1 - Stick or Twist
+2025-03-30 09:02:15,036 - INFO - Unmonitoring: S1E1 - Stick or Twist
+2025-03-30 09:02:15,074 - INFO - Unmonitored 1 episodes in series: MobLand
+2025-03-30 09:02:15,174 - INFO - Unmonitored 2 episodes across 2 series from specified release groups
+2025-03-30 09:02:15,175 - INFO - === Combined Results ===
+2025-03-30 09:02:15,175 - INFO - Radarr: Unmonitored 1 movies
+2025-03-30 09:02:15,176 - INFO - Sonarr: Unmonitored 2 episodes
+```
+
+As you can see, Unmonitarr successfully identified and unmonitored:
+- A movie from the 'iFT' release group
+- An episode from the 'NTb' release group
+- An episode from the 'FLUX' release group
+
+All of this was completed in just 8.56 seconds!
 
 ## Troubleshooting
 
