@@ -139,10 +139,10 @@ Create a `unmonitarr_config.json` file with the following structure:
 {
   "general": {
     "release_groups": [
-      "yify",
-      "rarbg",
-      "axxo",
-      "ctrlhd"
+      "yify",       # |----------------
+      "rarbg",      # | Edit as needed
+      "axxo",       # |
+      "ctrlhd"      # |----------------
     ],
     "dry_run": false,
     "debug": false,
@@ -157,16 +157,16 @@ Create a `unmonitarr_config.json` file with the following structure:
   "services": {
     "radarr": {
       "enabled": true,
-      "host": "localhost-or-ip",
-      "port": 7878,
-      "apikey": "your-radarr-api-key",
+      "host": "localhost-or-ip",       # Edit as needed
+      "port": 7878,                    # Edit as needed
+      "apikey": "your-radarr-api-key", # Edit as needed
       "sample_size": 0
     },
     "sonarr": {
       "enabled": true,
-      "host": "localhost-or-ip",
-      "port": 8989,
-      "apikey": "your-sonarr-api-key",
+      "host": "localhost-or-ip",       # Edit as needed
+      "port": 8989,                    # Edit as needed
+      "apikey": "your-sonarr-api-key", # Edit as needed
       "sample_size": 0,
       "season_filter": null
     }
