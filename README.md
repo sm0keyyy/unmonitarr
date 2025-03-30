@@ -12,7 +12,7 @@
 > **Sonarr (TV Series):**  
 > Standard Episodes:
 > ```
-> {Series TitleYear} - S{season:00}E{episode:00} - {Episode CleanTitle} [{Custom Formats }{Quality Full}]{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[MediaInfo VideoCodec]}{-Release Group}
+> {Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} {edition-{Edition Tags}} {[Custom Formats]}{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}{[Mediainfo VideoCodec]}{-Release Group}
 > ```
 > 
 > Daily Episodes:
@@ -38,14 +38,18 @@ A containerized Python tool that unmonitors media from specified release groups 
 
 The easiest way to get started is to use the provided setup script:
 
-1. Clone the repository:
-   ```
+1. Clone the repository into your app data directory (where you keep your Docker configurations):
+   ```bash
+   # Navigate to your app data directory, for example:
+   cd /path/to/your/docker/appdata
+   
+   # Clone the repository into a new unmonitarr directory
    git clone https://github.com/sm0keyyy/unmonitarr.git
    cd unmonitarr
    ```
 
 2. Run the setup script:
-   ```
+   ```bash
    bash setup.sh
    ```
 
@@ -57,51 +61,74 @@ The easiest way to get started is to use the provided setup script:
    - Prepares the application for deployment
 
 3. Edit the configuration:
-   ```
+   ```bash
    nano config/unmonitarr_config.json
    ```
    **Important**: You must add your Radarr/Sonarr API keys before running the container.
 
 4. Build and start the container:
-   ```
+   ```bash
    docker-compose up -d
    ```
 
 ### Using Docker Manually
 
-1. Clone the repository:
-   ```
+1. Clone the repository into your app data directory:
+   ```bash
+   # Navigate to your app data directory
+   cd /path/to/your/docker/appdata
+   
+   # Clone the repository
    git clone https://github.com/sm0keyyy/unmonitarr.git
    cd unmonitarr
    ```
 
-2. Customize the configuration:
+2. Create and customize the configuration:
+   ```bash
+   # Create config directory if it doesn't exist
+   mkdir -p config
+   
+   # Create a default config
+   cp unmonitarr_config.json config/unmonitarr_config.json
+   
+   # Edit the config file
+   nano config/unmonitarr_config.json
    ```
-   cp unmonitarr_config.json /path/to/appdata/config/unmonitarr_config.json
-   ```
-   Edit `config/unmonitarr_config.json` with your Radarr/Sonarr details.
 
 3. Build and run with Docker Compose:
-   ```
+   ```bash
    docker-compose up -d
    ```
 
 ### Manual Installation
 
 1. Clone the repository:
-   ```
+   ```bash
+   # Choose an appropriate location for the application
+   cd /path/to/install/directory
+   
+   # Clone the repository
    git clone https://github.com/sm0keyyy/unmonitarr.git
    cd unmonitarr
    ```
 
 2. Install dependencies:
-   ```
+   ```bash
    pip install -r requirements.txt
    ```
 
-3. Run the script:
+3. Create a configuration file:
+   ```bash
+   # Copy the example configuration
+   cp unmonitarr_config.json config/unmonitarr_config.json
+   
+   # Edit as needed
+   nano config/unmonitarr_config.json
    ```
-   python unmonitarr.py --config unmonitarr_config.json
+
+4. Run the script:
+   ```bash
+   python unmonitarr.py --config config/unmonitarr_config.json
    ```
 
 ## Configuration
@@ -178,22 +205,22 @@ Each service (Radarr, Sonarr) has these options:
 
 Processes all media in a one-time scan:
 
-```
-python unmonitarr.py --config unmonitarr_config.json
+```bash
+python unmonitarr.py --config config/unmonitarr_config.json
 ```
 
 ### Monitoring Mode
 
 Only processes new/changed files since last run:
 
-```
-python unmonitarr.py --config unmonitarr_config.json --monitor
+```bash
+python unmonitarr.py --config config/unmonitarr_config.json --monitor
 ```
 
 To force a full scan but still save state for future incremental scans:
 
-```
-python unmonitarr.py --config unmonitarr_config.json --monitor --force-full-scan
+```bash
+python unmonitarr.py --config config/unmonitarr_config.json --monitor --force-full-scan
 ```
 
 ## Docker Environment Variables
